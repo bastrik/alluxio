@@ -82,23 +82,23 @@ print_node_logs() {
 run_monitor() {
   local node_type=$1
   local mode=$2
-  local alluxio_config="${ALLUXIO_JAVA_OPTS}"
+  local alluxio_config=${ALLUXIO_JAVA_OPTS}
   case "${node_type}" in
     master)
       monitor_exec=alluxio.master.AlluxioMasterMonitor
-      alluxio_config="${alluxio_config} ${ALLUXIO_MASTER_JAVA_OPTS}"
+      alluxio_config=${ALLUXIO_MASTER_JAVA_OPTS}
       ;;
     worker)
       monitor_exec=alluxio.worker.AlluxioWorkerMonitor
-      alluxio_config="${alluxio_config} ${ALLUXIO_WORKER_JAVA_OPTS}"
+      alluxio_config=${ALLUXIO_WORKER_JAVA_OPTS}
       ;;
     job_master)
       monitor_exec=alluxio.master.job.AlluxioJobMasterMonitor
-      alluxio_config="${alluxio_config} ${ALLUXIO_JOB_MASTER_JAVA_OPTS}"
+      alluxio_config=${ALLUXIO_JOB_MASTER_JAVA_OPTS}
       ;;
     job_worker)
       monitor_exec=alluxio.worker.job.AlluxioJobWorkerMonitor
-      alluxio_config="${alluxio_config} ${ALLUXIO_JOB_WORKER_JAVA_OPTS}"
+      alluxio_config=${ALLUXIO_JOB_WORKER_JAVA_OPTS}
       ;;
     proxy)
       monitor_exec=alluxio.proxy.AlluxioProxyMonitor
