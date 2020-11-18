@@ -184,7 +184,9 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
     AlluxioURI path = new AlluxioURI(args[0]);
     int replication = FileSystemShellUtils.getIntArg(cl, REPLICATION_OPTION, DEFAULT_REPLICATION);
     String indexfile = cl.getOptionValue(INDEXFILE_OPTION.getLongOpt());
-    LOG.warn("index file is {}", indexfile);
+    if (indexfile != null) {
+      System.out.println("DistributedLoad based on index file: " + indexfile);
+    }
     mActiveJobs = DEFAULT_ACTIVE_JOBS;
     distributedLoad(path, replication, indexfile);
     return 0;
