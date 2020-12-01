@@ -50,9 +50,11 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import javax.annotation.Nullable;
 import javax.annotation.concurrent.NotThreadSafe;
 
 /**
@@ -89,7 +91,8 @@ public class TieredBlockStore implements BlockStore {
   private final BlockLockManager mLockManager;
   private final Allocator mAllocator;
 
-  private final List<BlockStoreEventListener> mBlockStoreEventListeners = new ArrayList<>();
+  private final List<BlockStoreEventListener> mBlockStoreEventListeners =
+      new CopyOnWriteArrayList<>();
 
   /** A set of pinned inodes fetched from the master. */
   private final Set<Long> mPinnedInodes = new HashSet<>();
@@ -256,8 +259,8 @@ public class TieredBlockStore implements BlockStore {
     long lockId = mLockManager.lockBlock(sessionId, blockId, BlockLockType.WRITE);
     try {
       BlockStoreLocation loc = commitBlockInternal(sessionId, blockId, pinOnCreate);
-      synchronized (mBlockStoreEventListeners) {
-        for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+        synchronized (listener) {
           listener.onCommitBlock(sessionId, blockId, loc);
         }
       }
@@ -275,8 +278,8 @@ public class TieredBlockStore implements BlockStore {
     long lockId = mLockManager.lockBlock(sessionId, blockId, BlockLockType.WRITE);
     try {
       BlockStoreLocation loc = commitBlockInternal(sessionId, blockId, pinOnCreate);
-      synchronized (mBlockStoreEventListeners) {
-        for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+        synchronized (listener) {
           listener.onCommitBlock(sessionId, blockId, loc);
         }
       }
@@ -293,8 +296,8 @@ public class TieredBlockStore implements BlockStore {
       BlockDoesNotExistException, InvalidWorkerStateException, IOException {
     LOG.debug("abortBlock: sessionId={}, blockId={}", sessionId, blockId);
     abortBlockInternal(sessionId, blockId);
-    synchronized (mBlockStoreEventListeners) {
-      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+    for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      synchronized (listener) {
         listener.onAbortBlock(sessionId, blockId);
       }
     }
@@ -351,8 +354,8 @@ public class TieredBlockStore implements BlockStore {
         blockId, oldLocation, moveOptions);
     MoveBlockResult result = moveBlockInternal(sessionId, blockId, oldLocation, moveOptions);
     if (result.getSuccess()) {
-      synchronized (mBlockStoreEventListeners) {
-        for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+        synchronized (listener) {
           listener.onMoveBlockByClient(sessionId, blockId, result.getSrcLocation(),
               result.getDstLocation());
         }
@@ -400,8 +403,8 @@ public class TieredBlockStore implements BlockStore {
       mLockManager.unlockBlock(lockId);
     }
 
-    synchronized (mBlockStoreEventListeners) {
-      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+    for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      synchronized (listener) {
         listener.onRemoveBlockByClient(sessionId, blockId);
         listener.onRemoveBlock(sessionId, blockId, blockMeta.getBlockLocation());
       }
@@ -414,8 +417,8 @@ public class TieredBlockStore implements BlockStore {
     try (LockResource r = new LockResource(mMetadataReadLock)) {
       BlockMeta blockMeta = mMetaManager.getBlockMeta(blockId);
 
-      synchronized (mBlockStoreEventListeners) {
-        for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+        synchronized (listener) {
           listener.onAccessBlock(sessionId, blockId);
           listener.onAccessBlock(sessionId, blockId, blockMeta.getBlockLocation());
         }
@@ -504,9 +507,7 @@ public class TieredBlockStore implements BlockStore {
   @Override
   public void registerBlockStoreEventListener(BlockStoreEventListener listener) {
     LOG.debug("registerBlockStoreEventListener: listener={}", listener);
-    synchronized (mBlockStoreEventListeners) {
-      mBlockStoreEventListeners.add(listener);
-    }
+    mBlockStoreEventListeners.add(listener);
   }
 
   /**
@@ -626,6 +627,7 @@ public class TieredBlockStore implements BlockStore {
     return loc;
   }
 
+  @Nullable
   private StorageDirView allocateSpace(long sessionId, AllocateOptions options) {
     StorageDirView dirView = null;
     BlockMetadataView allocatorView =
@@ -676,7 +678,7 @@ public class TieredBlockStore implements BlockStore {
         }
       }
     } catch (Exception e) {
-      LOG.error("Allocation failure. Options: {}. Error: {}", options, e);
+      LOG.error("Allocation failure. Options: {}. Error:", options, e);
       return null;
     }
 
@@ -695,6 +697,7 @@ public class TieredBlockStore implements BlockStore {
    *         {@link WorkerOutOfSpaceException} because allocation failure could be an expected case)
    * @throws BlockAlreadyExistsException if there is already a block with the same block id
    */
+  @Nullable
   private TempBlockMeta createBlockMetaInternal(long sessionId, long blockId, boolean newBlock,
       AllocateOptions options) throws BlockAlreadyExistsException {
     try (LockResource r = new LockResource(mMetadataWriteLock)) {
@@ -788,8 +791,8 @@ public class TieredBlockStore implements BlockStore {
           BlockMeta blockMeta = mMetaManager.getBlockMeta(blockToDelete);
           removeBlockInternal(blockMeta);
           blocksRemoved++;
-          synchronized (mBlockStoreEventListeners) {
-            for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+          for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+            synchronized (listener) {
               listener.onRemoveBlockByClient(sessionId, blockMeta.getBlockId());
               listener.onRemoveBlock(sessionId, blockMeta.getBlockId(),
                   blockMeta.getBlockLocation());
@@ -804,13 +807,12 @@ public class TieredBlockStore implements BlockStore {
     }
 
     if (!contiguousSpaceFound || !availableBytesFound) {
-      LOG.error(
-          "Failed to free space. Min contiguous requested: {}, Min available requested: {}, "
-              + "Blocks iterated: {}, Blocks removed: {}, " + "Space freed: {}",
-          minContiguousBytes, minAvailableBytes, blocksIterated, blocksRemoved, spaceFreed);
-
-      throw new WorkerOutOfSpaceException(ExceptionMessage.NO_EVICTION_PLAN_TO_FREE_SPACE
-          .getMessage(minAvailableBytes, location.tierAlias()));
+      throw new WorkerOutOfSpaceException(
+          String.format("Failed to free %d bytes space at location %s. "
+                  + "Min contiguous requested: %d, Min available requested: %d, "
+                  + "Blocks iterated: %d, Blocks removed: %d, Space freed: %d",
+              minAvailableBytes, location.tierAlias(), minContiguousBytes, minAvailableBytes,
+              blocksIterated, blocksRemoved, spaceFreed));
     }
   }
 
@@ -998,8 +1000,8 @@ public class TieredBlockStore implements BlockStore {
     try (LockResource r = new LockResource(mMetadataWriteLock)) {
       String tierAlias = dir.getParentTier().getTierAlias();
       dir.getParentTier().removeStorageDir(dir);
-      synchronized (mBlockStoreEventListeners) {
-        for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+      for (BlockStoreEventListener listener : mBlockStoreEventListeners) {
+        synchronized (listener) {
           dir.getBlockIds().forEach(listener::onBlockLost);
           listener.onStorageLost(tierAlias, dir.getDirPath());
           listener.onStorageLost(dir.toBlockStoreLocation());
