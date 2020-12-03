@@ -310,27 +310,31 @@ public abstract class DynamicResourcePool<T> implements Pool<T> {
 
     // Try to take a resource without blocking
     ResourceInternal<T> resource = poll();
-    if (resource != null) {
-      return checkHealthyAndRetry(resource.mResource, endTimeMs);
-    }
-
-    if (!isFull()) {
-      // If the resource pool is empty but capacity is not yet full, create a new resource.
-      T newResource = createNewResource();
-      ResourceInternal<T> resourceInternal = new ResourceInternal<>(newResource);
-      if (add(resourceInternal)) {
-        return newResource;
-      } else {
-        closeResource(newResource);
-      }
+    if (resource != null && checkHealthy(resource.mResource)) {
+      return resource.mResource;
     }
 
     // Otherwise, try to take a resource from the pool, blocking if none are available.
     try {
       mLock.lock();
       while (true) {
+        if (!isFull()) {
+          // If the resource pool is empty but capacity is not yet full, create a new resource.
+          T newResource = createNewResource();
+          ResourceInternal<T> resourceInternal = new ResourceInternal<>(newResource);
+          if (add(resourceInternal)) {
+            resource = resourceInternal;
+            break;
+          } else {
+            closeResource(newResource);
+          }
+        } else {
+          LOG.warn("{} resources pool is full, waiting for resource released",
+              getClass().getName());
+        }
+
         resource = poll();
-        if (resource != null) {
+        if (resource != null && checkHealthy(resource.mResource)) {
           break;
         }
         long currTimeMs = mClock.millis();
@@ -351,7 +355,7 @@ public abstract class DynamicResourcePool<T> implements Pool<T> {
       mLock.unlock();
     }
 
-    return checkHealthyAndRetry(resource.mResource, endTimeMs);
+    return resource.mResource;
   }
 
   /**
@@ -478,6 +482,25 @@ public abstract class DynamicResourcePool<T> implements Pool<T> {
       remove(resource);
       closeResource(resource);
       return acquire(endTimeMs - mClock.millis(), TimeUnit.MILLISECONDS);
+    }
+  }
+
+  /**
+   * Checks whether the resource is healthy. If not remove it. When this called, the resource
+   * is not in mAvailableResources.
+   *
+   * @param resource the resource to check
+   * @param endTimeMs the end time to wait till
+   * @return the resource
+   * @throws TimeoutException if it times out to wait for a resource
+   */
+  private boolean checkHealthy(T resource) throws TimeoutException, IOException {
+    if (isHealthy(resource)) {
+      return true;
+    } else {
+      remove(resource);
+      closeResource(resource);
+      return false;
     }
   }
 
