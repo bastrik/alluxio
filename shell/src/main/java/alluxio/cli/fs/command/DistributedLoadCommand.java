@@ -288,11 +288,21 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
       throws IOException, AlluxioException {
     ListStatusPOptions options = ListStatusPOptions.newBuilder().setRecursive(true).build();
     HashSet<String> filesToLoad = loadIndexFile(indexFile);
+    
     mFileSystem.iterateStatus(filePath, options, uriStatus -> {
-      if (!uriStatus.isFolder() && filesToLoad != null && filesToLoad.contains(uriStatus.getPath())) {
+      if (!uriStatus.isFolder() && filesToLoad != null && filesToLoad.contains(getRelativePath(filePath.getPath(), uriStatus.getPath()))) {
         addJob(uriStatus, replication);
       }
     });
+  }
+
+  private String getRelativePath(String rootPath, String fullPath) {
+    int index = rootPath.length();
+    if (!rootPath.endsWith("/")) {
+      index += 1;
+    }
+
+    return fullPath.substring(index);
   }
 
   /**
