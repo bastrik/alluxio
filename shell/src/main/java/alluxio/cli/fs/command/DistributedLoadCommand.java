@@ -73,8 +73,8 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
           .hasArg(true)
           .numberOfArgs(1)
           .type(Number.class)
-          .argName("replicas")
-          .desc("Index file containing files to be loaded. By default all files will be loaded.")
+          .argName("indexfile")
+          .desc("Index file containing files to be loaded. The file path in the index file is relative path to the folder path for distributedload By default all files will be loaded.")
           .build();
 
   private class JobAttempt {
