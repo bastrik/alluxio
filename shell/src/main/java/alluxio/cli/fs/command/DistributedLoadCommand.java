@@ -38,6 +38,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -64,6 +66,16 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
           .build();
 
   private static final int DEFAULT_ACTIVE_JOBS = 1000;
+  private static final Option INDEXFILE_OPTION =
+      Option.builder()
+          .longOpt("indexfile")
+          .required(false)
+          .hasArg(true)
+          .numberOfArgs(1)
+          .type(Number.class)
+          .argName("indexfile")
+          .desc("Index file containing files to be loaded. The file path in the index file is relative path to the folder path for distributedload By default all files will be loaded.")
+          .build();
 
   private class JobAttempt {
     private final LoadConfig mJobConfig;
@@ -158,7 +170,7 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
 
   @Override
   public Options getOptions() {
-    return new Options().addOption(REPLICATION_OPTION);
+    return new Options().addOption(REPLICATION_OPTION).addOption(INDEXFILE_OPTION);
   }
 
   @Override
@@ -171,8 +183,12 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
     String[] args = cl.getArgs();
     AlluxioURI path = new AlluxioURI(args[0]);
     int replication = FileSystemShellUtils.getIntArg(cl, REPLICATION_OPTION, DEFAULT_REPLICATION);
+    String indexfile = cl.getOptionValue(INDEXFILE_OPTION.getLongOpt());
+    if (indexfile != null) {
+      System.out.println("DistributedLoad based on index file: " + indexfile);
+    }
     mActiveJobs = DEFAULT_ACTIVE_JOBS;
-    distributedLoad(path, replication);
+    distributedLoad(path, replication, indexfile);
     return 0;
   }
 
@@ -248,10 +264,11 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
    *
    * @param filePath The {@link AlluxioURI} path to load into Alluxio memory
    * @param replication The replication of file to load into Alluxio memory
+   * @param indexFile file The index file containing all files to load
    */
-  private void distributedLoad(AlluxioURI filePath, int replication)
+  private void distributedLoad(AlluxioURI filePath, int replication, String indexFile)
       throws AlluxioException, IOException {
-    load(filePath, replication);
+    load(filePath, replication, indexFile);
     // Wait remaining jobs to complete.
     while (!mSubmittedJobAttempts.isEmpty()) {
       waitJob();
@@ -262,22 +279,57 @@ public final class DistributedLoadCommand extends AbstractFileSystemCommand {
    * Loads a file or directory in Alluxio space, makes it resident in memory.
    *
    * @param filePath The {@link AlluxioURI} path to load into Alluxio memory
+   * @param replication The replication of file to load into Alluxio memory
+   * @param indexFile file The index file containing all files to load
    * @throws AlluxioException when Alluxio exception occurs
    * @throws IOException      when non-Alluxio exception occurs
    */
-  private void load(AlluxioURI filePath, int replication)
+  private void load(AlluxioURI filePath, int replication, String indexFile)
       throws IOException, AlluxioException {
     ListStatusPOptions options = ListStatusPOptions.newBuilder().setRecursive(true).build();
+    HashSet<String> filesToLoad = loadIndexFile(indexFile);
+    
     mFileSystem.iterateStatus(filePath, options, uriStatus -> {
-      if (!uriStatus.isFolder()) {
+      if (!uriStatus.isFolder() && filesToLoad != null && filesToLoad.contains(getRelativePath(filePath.getPath(), uriStatus.getPath()))) {
         addJob(uriStatus, replication);
       }
     });
   }
 
+  private String getRelativePath(String rootPath, String fullPath) {
+    int index = rootPath.length();
+    if (!rootPath.endsWith("/")) {
+      index += 1;
+    }
+
+    return fullPath.substring(index);
+  }
+
+  /**
+   * Load file paths in index file into Hashset
+   * 
+   * @param indexFile index file containing file paths. One file path per line.
+   * @return Hashset with file paths listed in the index file. null will be returned if indexFile is null.
+   */
+  private HashSet<String> loadIndexFile(String indexFile) throws IOException {
+    if (indexFile == null || indexFile.trim().isEmpty()) {
+      return null;
+    }
+    
+    RandomAccessFile file = new RandomAccessFile(indexFile, "r");
+    HashSet<String> pathes = new HashSet<String>();
+    String str;
+    while ((str = file.readLine()) != null) {
+      if (!str.trim().isEmpty()) {
+        pathes.add(str);
+      }
+    }    
+    return pathes;
+  }
+
   @Override
   public String getUsage() {
-    return "distributedLoad [--replication <num>] <path>";
+    return "distributedLoad [--replication <num>]i [--indexfile <local file path>] <path>";
   }
 
   @Override
