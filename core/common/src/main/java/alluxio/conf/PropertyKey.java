@@ -2798,6 +2798,15 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.WORKER)
           .build();
+  public static final PropertyKey WORKER_REMOTE_IO_SLOW_THRESHOLD =
+      new Builder(Name.WORKER_REMOTE_IO_SLOW_THRESHOLD)
+          .setDefaultValue("10s")
+          .setDescription(
+              "The time threshold for when a worker remote IO (read or write) of a single buffer "
+                  + "is considered slow. When slow IO occurs, it is logged by a sampling logger.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
+          .setScope(Scope.WORKER)
+          .build();
   // The default is set to 11. One client is reserved for some light weight operations such as
   // heartbeat. The other 10 clients are used by commitBlock issued from the worker to the block
   // master.
@@ -3738,9 +3747,12 @@ public final class PropertyKey implements Comparable<PropertyKey> {
   public static final PropertyKey USER_STREAMING_DATA_TIMEOUT =
       new Builder(Name.USER_STREAMING_DATA_TIMEOUT)
           .setAlias("alluxio.user.network.data.timeout.ms", Name.USER_NETWORK_DATA_TIMEOUT)
-          .setDefaultValue("30sec")
+          .setDefaultValue("1h")
           .setDescription("The maximum time for an Alluxio client to wait for a data response "
-              + "(e.g. block reads and block writes) from Alluxio worker.")
+              + "(e.g. block reads and block writes) from Alluxio worker. Keep in mind that some "
+              + "streaming operations may take an unexpectedly long time, such as UFS io. In "
+              + "order to handle occasional slow operations, it is recommended for this parameter"
+              + " to be set to a large value, to avoid spurious timeouts.")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.CLIENT)
           .build();
@@ -4206,6 +4218,16 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
           .setScope(Scope.CLIENT)
           .build();
+  public static final PropertyKey FUSE_SHARED_CACHING_READER_ENABLED =
+      new Builder(Name.FUSE_SHARED_CACHING_READER_ENABLED)
+          .setDefaultValue(false)
+          .setDescription("(Experimental) Use share grpc data reader for better performance "
+              + "on multi-process file reading through Alluxio JNI Fuse. "
+              + "Blocks data will be cached on the client side "
+              + "so more memory is required for the Fuse process.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .setScope(Scope.CLIENT)
+          .build();
   public static final PropertyKey FUSE_MAXCACHE_BYTES =
       new Builder(Name.FUSE_MAXCACHE_BYTES)
           .setDefaultValue("1MB")
@@ -4478,7 +4500,7 @@ public final class PropertyKey implements Comparable<PropertyKey> {
       new Builder(Name.JOB_MASTER_FINISHED_JOB_RETENTION_TIME)
           .setDescription("The length of time the Alluxio Job Master should save information about "
               + "completed jobs before they are discarded.")
-          .setDefaultValue("300sec")
+          .setDefaultValue("60sec")
           .setScope(Scope.MASTER)
           .build();
   public static final PropertyKey JOB_MASTER_JOB_CAPACITY =
@@ -5276,6 +5298,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.worker.network.shutdown.timeout";
     public static final String WORKER_NETWORK_ZEROCOPY_ENABLED =
         "alluxio.worker.network.zerocopy.enabled";
+    public static final String WORKER_REMOTE_IO_SLOW_THRESHOLD =
+        "alluxio.worker.remote.io.slow.threshold";
     public static final String WORKER_BLOCK_MASTER_CLIENT_POOL_SIZE =
         "alluxio.worker.block.master.client.pool.size";
     public static final String WORKER_PRINCIPAL = "alluxio.worker.principal";
@@ -5551,6 +5575,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
     public static final String FUSE_DEBUG_ENABLED = "alluxio.fuse.debug.enabled";
     public static final String FUSE_FS_NAME = "alluxio.fuse.fs.name";
     public static final String FUSE_JNIFUSE_ENABLED = "alluxio.fuse.jnifuse.enabled";
+    public static final String FUSE_SHARED_CACHING_READER_ENABLED
+        = "alluxio.fuse.shared.caching.reader.enabled";
     public static final String FUSE_LOGGING_THRESHOLD = "alluxio.fuse.logging.threshold";
     public static final String FUSE_MAXWRITE_BYTES = "alluxio.fuse.maxwrite.bytes";
     public static final String FUSE_MAXCACHE_BYTES = "alluxio.fuse.maxcache.bytes";
